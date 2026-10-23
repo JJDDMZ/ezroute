@@ -89,14 +89,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model else { return .terminateNow }
         let routing = RoutingModel.shared
-        guard routing.enabled || routing.routingState != .idle else { return .terminateNow }
+        guard routing.enabled || routing.routingState != .idle || routing.hasPendingDNSRecovery else { return .terminateNow }
         model.quitting = true
         Task {
             guard await routing.prepareQuit() else {
                 model.quitting = false
                 let alert = NSAlert()
                 alert.messageText = "退出前的路由调整未完成"
-                alert.informativeText = "应用将继续运行。请先断开校园 Wi-Fi，恢复 Clash 控制接口后再退出。"
+                alert.informativeText = "应用将继续运行。请在设置中点击“检查路由”，允许 USB DNS 恢复授权并确认 Clash 可用后重试退出。必要时先断开校园 Wi-Fi。"
                 alert.runModal()
                 sender.reply(toApplicationShouldTerminate: false); return
             }

@@ -39,6 +39,8 @@ import EZSwitchCore
     @ObservationIgnored private var coupling: RoutingTunnelCoupling
     @ObservationIgnored private var probingTunnel = false
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let systemDNS: ManagedDNS
+    @ObservationIgnored private let dnsBackend: SystemDNSBackend
     @ObservationIgnored private let location = CLLocationManager()
     @ObservationIgnored private var phones = DeviceSnapshot(devices: [], error: "等待读取")
     @ObservationIgnored private var timer: Timer?
@@ -46,6 +48,11 @@ import EZSwitchCore
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        let backend = SystemDNSBackend()
+        dnsBackend = backend
+        systemDNS = ManagedDNS(backend: backend, journalURL:
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
+                "Library/Application Support/dev.ezswitch.app/usb-dns-recovery.json"))
         coupling = RoutingTunnelCoupling(suspended: defaults.bool(forKey: "EZSwitch.automaticRoutingSuspendedByTunnel"))
         registrations = defaults.data(forKey: "EZSwitch.registeredHotspots").flatMap {
             try? JSONDecoder().decode([RegisteredHotspot].self, from: $0)
@@ -54,7 +61,12 @@ import EZSwitchCore
         location.delegate = self
         enabled = defaults.bool(forKey: "EZSwitch.automaticRouting")
         appleViaProxy = defaults.bool(forKey: "EZSwitch.appleViaProxy")
-        coordinator = RoutingCoordinator(controller: RoutingControllerAdapter(), loadBase: { [weak self] in
+        let controller = DNSRoutingController(controller: RoutingControllerAdapter(), dns: systemDNS,
+            runtime: { try await MihomoClient().read(path: "/configs") }, selectedUSB: { [weak self] in
+                guard let self, self.enabled, !self.shuttingDown, !self.sleeping, !self.settling else { return nil }
+                return self.reading.network.usbInterface
+            })
+        coordinator = RoutingCoordinator(controller: controller, loadBase: { [weak self] in
             guard let self else { throw MihomoClientError.unavailable }
             return try await self.loadBase()
         }, snapshot: { [weak self] in
@@ -97,6 +109,13 @@ import EZSwitchCore
             enabled = false; routingState = .unprotected
             clashStatus = "无法取得路由控制权。请检查是否已有其他 EZ Route 实例正在运行。"
             return
+        }
+        // A prior abnormal exit may have left a service pinned to a stopped TUN.
+        // Restore its original settings before starting a new routing session.
+        do { try systemDNS.restore() }
+        catch {
+            enabled = false; routingState = .unprotected
+            clashStatus = "USB DNS 恢复失败：" + error.localizedDescription
         }
         networkEvents.start()
         let sampler = TrafficSampler(directory: TrafficStore.defaultDirectory)
@@ -242,6 +261,7 @@ import EZSwitchCore
         }
     }
     func setEnabled(_ value: Bool) async {
+        if value { dnsBackend.allowAuthorizationRetry() }
         await applyEnabled(value)
         // A deliberate off retires any tunnel-driven restore. A failed on keeps it, so
         // switching the tunnel back on still restores what the tunnel suspended.
@@ -300,10 +320,13 @@ import EZSwitchCore
         // A busy transaction will observe shuttingDown in its snapshot and drain before exit.
         let limit = Date().addingTimeInterval(25)
         while (coordinator.isBusy || routingState == .switching) && Date() < limit { try? await Task.sleep(for: .milliseconds(100)) }
-        let safe = !coordinator.isBusy && (routingState == .active || routingState == .blockedAfterFailure || routingState == .paused)
+        var safe = !coordinator.isBusy && (routingState == .active || routingState == .blockedAfterFailure || routingState == .paused)
+        do { try systemDNS.restore() }
+        catch { safe = false; clashStatus = "USB DNS 恢复失败：" + error.localizedDescription }
         if !safe { shuttingDown = false }
         return safe
     }
+    var hasPendingDNSRecovery: Bool { systemDNS.hasPendingChanges }
     private func didApply(_ state: RoutingCoordinatorState, _ snapshot: RoutingSnapshot?) {
         let reason = coordinator.failureDescription ?? "none"
         Self.logger.notice("state=\(String(describing: state), privacy: .public) mode=\(snapshot?.decision.mode.rawValue ?? "none", privacy: .public) reason=\(reason, privacy: .public)")
@@ -337,7 +360,9 @@ import EZSwitchCore
     func checkClash() async {
         guard !checkingClash else { return }
         checkingClash = true; defer { checkingClash = false }
+        dnsBackend.allowAuthorizationRetry()
         do {
+            if !enabled { try systemDNS.restore() }
             _ = try await loadBase()
             _ = try await MihomoClient().read(path: "/configs")
             if enabled {

@@ -117,7 +117,7 @@ public extension RoutingController {
                 failureDescription = nil; failedSnapshot = nil
                 configuration = output; applied = target; state = .active
             } catch {
-                let detail = (error is MihomoClientError || error is RoutingConfigurationError || error is ClashBootstrapError) ? error.localizedDescription : "本地程序或控制请求失败。"
+                let detail = (error is MihomoClientError || error is RoutingConfigurationError || error is ClashBootstrapError || error is ManagedDNSError) ? error.localizedDescription : "本地程序或控制请求失败。"
                 failureDescription = stage + "：" + detail
                 configuration = nil; applied = nil; failedSnapshot = snapshot()
                 // Only an initial API failure is automatically retried. An invalid base still needs

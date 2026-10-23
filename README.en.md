@@ -8,6 +8,7 @@ EZ Route is a macOS menu bar app for routing across USB network devices and Wi-F
 
 - Detect iPhone tethering, portable Wi-Fi routers, and other USB network devices; add trusted wireless connections.
 - Update Clash/Mihomo egress settings as networks change and clear old connections.
+- Manage system DNS for the selected USB service, saving the original settings for recovery.
 - Inspect connections, traffic recorded while the app runs, and website responses.
 - Capture test packet headers on demand to check physical egress.
 - Apply a routing recovery policy when quitting.
@@ -22,7 +23,7 @@ EZ Route is a macOS menu bar app for routing across USB network devices and Wi-F
 
 ## Install
 
-Current version: **0.2.19 (build 23)**. Requirements: macOS 27, Xcode 27, Clash Verge Rev, and a working USB network device, such as an iPhone or a portable Wi-Fi router. Offline checks also use Node.js and Python 3.
+Current version: **0.2.20 (build 24)**. Requirements: macOS 27, Xcode 27, Clash Verge Rev, and a working USB network device, such as an iPhone or a portable Wi-Fi router. Offline checks also use Node.js and Python 3.
 
 ```sh
 git clone https://github.com/JJDDMZ/ezroute.git
@@ -38,7 +39,8 @@ The installer places the app at `~/Applications/EZ Route.app`. It quits the prev
 1. Connect an iPhone or portable Wi-Fi router over USB and enable USB network sharing. An iPhone also needs to trust the Mac and enable Personal Hotspot.
 2. Choose the device in Devices & Networks → Selected USB Outlet (`设备与网络 → 指定 USB 出口`). Add a phone hotspot or portable router under Trusted Wireless Connections (`信任的无线连接`) for wireless use.
 3. Enable TUN in Clash Verge Rev, then enable Automatic Routing (`自动路由`) in EZ Route.
-4. View egress in Overview (`概览`) and inspect connections or test websites in Diagnostics & Monitoring (`诊断与监测`).
+4. Allow the macOS network-settings authorization when USB DNS is first managed. If declined, enable automatic routing again or click Check Routing (`检查路由`) to retry.
+5. View egress in Overview (`概览`) and inspect connections or test websites in Diagnostics & Monitoring (`诊断与监测`).
 
 macOS must expose the USB device as an Ethernet interface with a usable IPv4 address. Existing iPhone selections and wireless registrations are preserved. Select the USB outlet again when changing devices; devices without a serial number may also need reselection after moving to another USB port.
 
@@ -52,7 +54,7 @@ See the [usage guide](docs/setup.md). Campus-specific rules in the public source
 ./script/verify-routing.sh --offline
 ```
 
-Offline checks cover the Swift core, JavaScript configuration transforms, Python tools, build, and signature. Packet captures establish physical egress for the tested network and requests. Recovery currently depends on the app and Clash running and does not provide a system-wide zero-leak guarantee. Network transitions, app crashes, and traffic bypassing TUN still have protection or validation gaps. Portable-router detection, reconnection, and physical egress need validation on the actual device.
+Offline checks cover the Swift core, JavaScript configuration transforms, Python tools, build, and signature. Packet captures establish physical egress for the tested network and requests. Recovery currently depends on the app and Clash running and does not provide a system-wide zero-leak guarantee. Network transitions, app crashes, and traffic bypassing TUN still have protection or validation gaps. Version 0.2.20 received targeted user confirmation for Google Search, ChatGPT, and Bilibili pages and video with a ZTE F50 Pro over USB alongside campus Wi-Fi. Other devices, DNS restoration after unplugging, and physical egress need separate validation. Slow or failed loading of full-size WeChat Moments images remains unresolved.
 
 When quitting normally with only Wi-Fi available, the app switches to direct access and disables proxies, even for a trusted connection. Keep the app and automatic routing running to continue proxy access over that wireless connection.
 

@@ -26,14 +26,14 @@ struct StatusView: View {
             }))
             .toggleStyle(.switch)
             .disabled(routing.changingEnabled || model.quitting)
-            .help("随 USB、Wi-Fi 和已登记热点的连接状态自动选择出口。")
+            .help("随 USB、Wi-Fi 和信任的无线连接状态自动选择出口。")
 
             Toggle("Apple 走代理", isOn: Binding(
                 get: { routing.appleViaProxy },
                 set: { value in Task { await routing.setAppleViaProxy(value) } }))
                 .toggleStyle(.switch)
                 .disabled(routing.changingEnabled || model.quitting)
-                .help("分流或无线热点模式下，关闭可让 Apple 服务直连，开启则使用订阅规则。")
+                .help("分流或信任的无线连接模式下，关闭可让 Apple 服务直连，开启则使用订阅规则。")
 
             Text("手机切卡可搭配独立项目 EZ SIM。")
                 .font(.caption).foregroundStyle(.secondary)

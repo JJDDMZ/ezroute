@@ -30,7 +30,7 @@ struct RoutingNetworkReading {
         let usbCandidates = (phones.devices.first { $0.id == deviceID }?.networkInterfaces ?? []).filter(ready)
         guard usbCandidates.count <= 1 else {
             return .init(network: .init(stateReadable: false), wifiName: nil, registrationAllowed: false,
-                         message: "检测到多个 iPhone USB 出口，正在等待唯一可用出口。")
+                         message: "所选设备有多个可用 USB 网络接口，正在等待唯一可用出口。")
         }
         let usb = usbCandidates.first
         let available = (CWWiFiClient.shared().interfaces() ?? []).filter {

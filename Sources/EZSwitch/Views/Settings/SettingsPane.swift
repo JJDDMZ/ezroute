@@ -8,7 +8,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .overview: "概览"
-        case .devices: "设备与热点"
+        case .devices: "设备与网络"
         case .diagnostics: "诊断与监测"
         case .general: "通用"
         }

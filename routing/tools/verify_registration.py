@@ -109,7 +109,7 @@ class RegistrationDiagnostic(WifiSwitchDiagnostic):
 
         self.stage = 'wait-for-registration-restoration'
         self.begin_phase('restoration_before_confirmation')
-        print('步骤 3/4：仍保持 USB 拔出和同一个手机 Wi-Fi。在 EZ Route 设置中点击“登记当前手机热点…”，再确认“这是手机热点，登记”。完成后在本终端输入 2 并回车。', flush=True)
+        print('步骤 3/4：仍保持 USB 拔出和同一个手机 Wi-Fi。在 EZ Route 设置中点击“信任当前无线连接…”，再确认“添加信任”。完成后在本终端输入 2 并回车。', flush=True)
         self.confirm_switch('2')
         self.result['restoration_confirmed'] = True
         self.end_phase()

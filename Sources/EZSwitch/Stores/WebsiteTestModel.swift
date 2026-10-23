@@ -75,9 +75,9 @@ import EZSwitchCore
             let initial = routing.websiteTestSnapshot()
             identity = initial
             var interfaceNames: [String: String] = [:]
-            if let usb = routing.reading.network.usbInterface { interfaceNames[usb] = "手机 USB（\(usb)）" }
+            if let usb = routing.reading.network.usbInterface { interfaceNames[usb] = "USB 供网（\(usb)）" }
             if let wifi = routing.reading.network.wifiInterface {
-                interfaceNames[wifi] = initial.decision.mode == .wifiHotspot ? "手机 Wi-Fi（\(wifi)）" : "Wi-Fi（\(wifi)）"
+                interfaceNames[wifi] = initial.decision.mode == .wifiHotspot ? "信任的无线连接（\(wifi)）" : "Wi-Fi（\(wifi)）"
             }
             reports[purpose, default: .init()].interfaceNames = interfaceNames
             let direct = initial.decision.directInterface.map { interfaceNames[$0] ?? $0 } ?? "不可用"

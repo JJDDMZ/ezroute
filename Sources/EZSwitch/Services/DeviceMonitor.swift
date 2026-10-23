@@ -87,8 +87,9 @@ final class DeviceMonitor {
                 (SCDynamicStoreCopyValue(store, "State:/Network/Global/\($0)" as CFString)
                     as? [String: Any])?["PrimaryInterface"] as? String
             })
-            for (deviceID, interface) in try usbNetworkInterfaces() {
-                guard let index = phones.firstIndex(where: { $0.id == deviceID }) else { continue }
+            for (device, interface) in try usbNetworkInterfaces() {
+                if !phones.contains(where: { $0.id == device.id }) { phones.append(device) }
+                guard let index = phones.firstIndex(where: { $0.id == device.id }) else { continue }
                 let link = SCDynamicStoreCopyValue(store, "State:/Network/Interface/\(interface)/Link" as CFString) as? [String: Any]
                 let ipv4 = SCDynamicStoreCopyValue(store, "State:/Network/Interface/\(interface)/IPv4" as CFString) as? [String: Any]
                 let ipv6 = SCDynamicStoreCopyValue(store, "State:/Network/Interface/\(interface)/IPv6" as CFString) as? [String: Any]
@@ -121,21 +122,25 @@ final class DeviceMonitor {
         return Phone(id: serial, name: name)
     }
 
-    private func usbNetworkInterfaces() throws -> [(String, String)] {
-        var iterator: io_iterator_t = 0
-        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOEthernetInterface"), &iterator) == KERN_SUCCESS
-        else { throw MonitorError.unavailable("无法读取网络设备关联。") }
-        defer { IOObjectRelease(iterator) }
-        var matches: [(String, String)] = []
-        while case let interface = IOIteratorNext(iterator), interface != 0 {
-            defer { IOObjectRelease(interface) }
-            guard let bsd = property(interface, "BSD Name") as? String else { continue }
-            // Follow registry ancestry to the actual iPhone, not a localized service name.
-            var current = interface
-            IOObjectRetain(current)
+    private func usbNetworkInterfaces() throws -> [(Phone, String)] {
+        guard let interfaces = SCNetworkInterfaceCopyAll() as? [SCNetworkInterface] else {
+            throw MonitorError.unavailable("无法读取网络设备关联。")
+        }
+        var matches: [(Phone, String)] = []
+        for interface in interfaces {
+            guard SCNetworkInterfaceGetInterfaceType(interface) == kSCNetworkInterfaceTypeEthernet,
+                  let bsd = SCNetworkInterfaceGetBSDName(interface) as String?,
+                  RoutingPolicy.validInterface(bsd),
+                  let matching = IOBSDNameMatching(kIOMainPortDefault, 0, bsd) else { continue }
+            var current = IOServiceGetMatchingService(kIOMainPortDefault, matching)
+            guard current != 0 else { continue }
+            // Resolve the BSD interface to its nearest physical USB device. This also
+            // works for network drivers that do not expose IOEthernetInterface.
             for _ in 0..<32 {
-                if let found = phone(current) {
-                    matches.append((found.id, bsd)); break
+                if IOObjectConformsTo(current, "IOUSBHostDevice") != 0 ||
+                    IOObjectConformsTo(current, "IOUSBDevice") != 0 {
+                    if let device = usbDevice(current) { matches.append((device, bsd)) }
+                    break
                 }
                 var parent: io_registry_entry_t = 0
                 guard IORegistryEntryGetParentEntry(current, kIOServicePlane, &parent) == KERN_SUCCESS else { break }
@@ -144,6 +149,18 @@ final class DeviceMonitor {
             IOObjectRelease(current)
         }
         return matches
+    }
+
+    private func usbDevice(_ service: io_registry_entry_t) -> Phone? {
+        guard let vendor = property(service, "idVendor") as? NSNumber,
+              let product = property(service, "idProduct") as? NSNumber else { return nil }
+        var path = [CChar](repeating: 0, count: 4096)
+        let hasPath = IORegistryEntryGetPath(service, kIOServicePlane, &path) == KERN_SUCCESS
+        let registryPath = hasPath ? String(decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) : nil
+        return USBNetworkDevice.identify(vendorID: vendor.intValue, productID: product.intValue,
+            name: property(service, "USB Product Name") as? String,
+            serial: property(service, "USB Serial Number") as? String,
+            registryPath: registryPath)
     }
 
     private func property(_ service: io_registry_entry_t, _ key: String) -> Any? {

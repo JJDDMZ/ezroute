@@ -31,7 +31,7 @@ struct EZSwitchApp: App {
                     let decision = RoutingPolicy.decide(reading.network)
                     print("Routing preview: \(decision.mode.rawValue) · usable USB: \(reading.network.usbInterface ?? "none") · usable Wi-Fi: \(reading.network.wifiInterface ?? "none") · applied: false")
                 }
-                print("USB iPhones: \(value.devices.count)")
+                print("USB network devices: \(value.devices.count)")
                 exit(value.error == nil ? 0 : 1)
             }
             monitor.start()

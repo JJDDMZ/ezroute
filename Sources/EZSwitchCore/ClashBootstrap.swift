@@ -8,7 +8,7 @@ public enum ClashBootstrapError: Error, LocalizedError {
         case .unsupportedScript: "Clash 存在自定义扩展脚本，已保留原文件；自动订阅接入需要先检查该脚本。"
         case .invalidRegistry: "Clash 订阅关联无法读取，未安装全局路由保护。"
         case .unsafeFile: "Clash 扩展文件路径或权限异常，未安装全局路由保护。"
-        case .usbNotIdentified: "尚未确认指定 iPhone 的 USB 接口。请先连接该手机并开启 USB 个人热点，再接入自动路由。"
+        case .usbNotIdentified: "尚未确认指定设备的 USB 网络接口。请连接 iPhone 或随身 Wi-Fi，开启 USB 供网并选择 USB 出口，再接入自动路由。"
         }
     }
 }

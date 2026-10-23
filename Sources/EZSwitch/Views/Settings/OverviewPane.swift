@@ -13,7 +13,7 @@ struct OverviewPane: View {
                 Toggle("自动路由", isOn: Binding(get: { routing.enabled }, set: { value in
                     Task { await routing.setEnabled(value) }
                 })).disabled(routing.changingEnabled)
-                Text("退出时：USB 在线保留手机出口，仅 Wi-Fi 在线则直连，离线则阻断请求。")
+                Text("退出时：USB 在线保留指定 USB 出口，仅 Wi-Fi 在线则直连，离线则阻断请求。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("网络与出口") {

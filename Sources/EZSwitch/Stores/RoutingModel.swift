@@ -77,7 +77,7 @@ import EZSwitchCore
         guard reading.registrationAllowed, let ssid = reading.network.ssid,
               let security = reading.network.security else { return nil }
         return .init(ssid: ssid, security: security,
-                     displayName: reading.wifiName ?? "热点 · " + ssid.base64EncodedString())
+                     displayName: reading.wifiName ?? "无线连接 · " + ssid.base64EncodedString())
     }
     func receive(_ snapshot: DeviceSnapshot) {
         phones = snapshot
@@ -118,8 +118,8 @@ import EZSwitchCore
         let status = location.authorizationStatus
         let authorized = status == .authorizedAlways
         switch status {
-        case .authorizedAlways: locationStatus = "已允许读取热点名称"
-        case .denied, .restricted: locationStatus = "未授权，请在系统设置中允许读取热点名称"
+        case .authorizedAlways: locationStatus = "已允许读取 Wi-Fi 名称"
+        case .denied, .restricted: locationStatus = "未授权，请在系统设置中允许读取 Wi-Fi 名称"
         default: locationStatus = "等待授权"
         }
         reading = RoutingNetworkReader.read(phones: phones, deviceID: usbDeviceID,
@@ -134,13 +134,13 @@ import EZSwitchCore
         refresh()
         guard reading.registrationAllowed,
               candidate.matches(ssid: reading.network.ssid, security: reading.network.security) else {
-            feedback = "网络已变化，请重新选择当前热点。"; return
+            feedback = "网络已变化，请重新选择当前无线连接。"; return
         }
         guard !registrations.contains(where: { $0.matches(ssid: candidate.ssid, security: candidate.security) }) else {
-            feedback = "该热点已在列表中。"; return
+            feedback = "该无线连接已在信任列表中。"; return
         }
         registrations.append(candidate); persist()
-        feedback = "热点已登记。开启自动路由后，连接它即可使用手机出口。"; refresh()
+        feedback = "已添加信任。开启自动路由后，连接该无线网络即可使用代理。"; refresh()
     }
     func remove(_ id: UUID) { registrations.removeAll { $0.id == id }; persist(); refresh() }
     private func persist() {
@@ -322,9 +322,9 @@ import EZSwitchCore
             lastAnnouncement = snapshot.decision
             let body: String
             switch snapshot.decision.mode {
-            case .usbHotspot: body = "当前使用 iPhone USB 热点。"
-            case .wifiHotspot: body = "当前使用已登记的手机无线热点。"
-            case .split: body = "代理与公共 DNS 使用手机 USB，直连使用 Wi-Fi。"
+            case .usbHotspot: body = "当前使用指定的 USB 网络出口。"
+            case .wifiHotspot: body = "当前使用信任的无线连接。"
+            case .split: body = "代理与公共 DNS 使用指定 USB 出口，直连使用 Wi-Fi。"
             case .directOnly: body = "当前使用 Wi-Fi 直连，代理已停用。"
             case .blocked: body = "正在等待可用网络，Clash 请求已阻断。"
             }

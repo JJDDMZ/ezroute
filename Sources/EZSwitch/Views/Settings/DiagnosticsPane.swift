@@ -72,7 +72,7 @@ struct DiagnosticsPane: View {
                 if websiteTests.selectedPurpose == .physical {
                     Text("采集测试连接的包头，核对流量从 USB 还是 Wi-Fi 发出。系统会请求管理员授权。")
                         .font(.callout)
-                    Text("使用自己的手机 USB 和手机 Wi-Fi 作为测试网络，并暂停其他下载。")
+                    Text("使用自己的 USB 供网设备或信任的无线连接进行测试，并暂停其他下载。")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text("检查网站的 HTTPS 响应状态和耗时，无需管理员授权。")

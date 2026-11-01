@@ -154,6 +154,61 @@ import XCTest
 }
 
 @MainActor final class DNSRoutingControllerTests: XCTestCase {
+    func testUnreadableProtectionIdentityDoesNotRestoreCampusDhcpDns() async throws {
+        let backend = DNSBackendFixture(); backend.interface = "en0"
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ez-strict-dns-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let protected = ManagedDNS(backend: backend, journalURL: folder.appendingPathComponent("wifi.json"))
+        let usb = ManagedDNS(backend: DNSBackendFixture(), journalURL: folder.appendingPathComponent("usb.json"))
+        try protected.synchronize(interface: "en0", address: "198.18.0.2")
+        let wrapped = DNSRoutingController(controller: DNSControllerFixture(), dns: usb,
+            runtime: { try self.runtime() }, selectedUSB: { nil }, protectedDNS: protected,
+            protectedInterface: { nil }, protectedStateReadable: { false })
+        let blocked = try JSONSerialization.data(withJSONObject: ["mode": "rule", "proxies": []])
+        _ = try await wrapped.verify(configuration: blocked, shouldContinue: { true })
+        XCTAssertNotNil(backend.settings)
+        XCTAssertTrue(protected.hasPendingChanges)
+    }
+
+    func testExplicitTunnelOffRestoresProtectedDnsEvenWhenUsbJournalCannotBeRead() async throws {
+        let backend = DNSBackendFixture(); backend.interface = "en0"
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ez-strict-dns-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let protected = ManagedDNS(backend: backend, journalURL: folder.appendingPathComponent("wifi.json"))
+        let usbFile = folder.appendingPathComponent("usb.json")
+        let usb = ManagedDNS(backend: DNSBackendFixture(), journalURL: usbFile)
+        try protected.synchronize(interface: "en0", address: "198.18.0.2")
+        try Data("invalid journal".utf8).write(to: usbFile)
+        let controller = DNSControllerFixture(); controller.tun = false
+        let wrapped = DNSRoutingController(controller: controller, dns: usb, runtime: { try self.runtime() },
+            selectedUSB: { nil }, protectedDNS: protected, protectedInterface: { "en0" })
+        do { _ = try await wrapped.tunnelEnabled(); XCTFail("USB journal failure must still be reported") } catch {}
+        XCTAssertNil(backend.settings)
+        XCTAssertFalse(protected.hasPendingChanges)
+        XCTAssertTrue(usb.hasPendingChanges)
+    }
+    func testProtectedWiFiDnsStaysPinnedWithoutUsbAndRestoresOnlyAfterLeavingProtection() async throws {
+        let backend = DNSBackendFixture(); backend.interface = "en0"
+        let usbBackend = DNSBackendFixture(); let controller = DNSControllerFixture()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ez-strict-dns-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let wifiDNS = ManagedDNS(backend: backend, journalURL: folder.appendingPathComponent("wifi.json"))
+        let usbDNS = ManagedDNS(backend: usbBackend, journalURL: folder.appendingPathComponent("usb.json"))
+        var protected: String? = "en0"
+        let wrapped = DNSRoutingController(controller: controller, dns: usbDNS, runtime: { try self.runtime() },
+            selectedUSB: { nil }, protectedDNS: wifiDNS, protectedInterface: { protected })
+        let blocked = try JSONSerialization.data(withJSONObject: ["mode": "rule", "interface-name": "en0", "proxies": []])
+        _ = try await wrapped.verify(configuration: blocked, shouldContinue: { true })
+        XCTAssertNotNil(backend.settings)
+        XCTAssertTrue(wifiDNS.hasPendingChanges)
+        // A second verified block/offline/quit configuration keeps campus DNS behind TUN.
+        _ = try await wrapped.verify(configuration: blocked, shouldContinue: { true })
+        XCTAssertNotNil(backend.settings)
+        protected = nil
+        _ = try await wrapped.verify(configuration: blocked, shouldContinue: { true })
+        XCTAssertNil(backend.settings)
+        XCTAssertFalse(wifiDNS.hasPendingChanges)
+    }
     func testUSBVerifiedBeforeDNSAndTunnelOffRestores() async throws {
         let backend = DNSBackendFixture(); let controller = DNSControllerFixture()
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("ez-dns-controller-\(UUID())/dns.json")

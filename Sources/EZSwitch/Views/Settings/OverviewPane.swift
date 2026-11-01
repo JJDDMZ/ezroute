@@ -15,10 +15,13 @@ struct OverviewPane: View {
                 })).disabled(routing.changingEnabled)
                 Text("退出时：USB 在线保留指定 USB 出口，仅 Wi-Fi 在线则直连，离线则阻断请求。")
                     .font(.caption).foregroundStyle(.secondary)
+                Text("自动路由使用 USB 时会接管该服务的 DNS；停用或退出时恢复原 DNS。首次使用需允许 macOS 网络设置授权。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("网络与出口") {
                 LabeledContent("当前网络", value: routing.modeTitle)
-                LabeledContent("当前路由", value: routing.appliedDecision?.mode.displayTitle ?? "等待应用")
+                LabeledContent("当前路由", value: routing.appliedDecision?.strictProtection == true
+                    ? "严格保护" : (routing.appliedDecision?.mode.displayTitle ?? "等待应用"))
                 LabeledContent("代理出口", value: routing.decision.proxyInterface ?? "已停用")
                 LabeledContent("直连出口", value: routing.decision.directInterface ?? "不可用")
                 LabeledContent("Wi-Fi", value: routing.reading.wifiName ?? (routing.reading.network.wifiInterface == nil ? "未连接" : "名称读取失败"))

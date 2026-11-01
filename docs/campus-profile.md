@@ -7,8 +7,10 @@
 | `campus.example` | 校内域名及子域 | `Sources/EZSwitchCore/RoutingConfiguration.swift` |
 | `192.0.2.53` | 校内 DNS | 同上 |
 | `192.0.2.10/32` | 仅允许校园出口访问的主机 | 同上、`routing/clash-bootstrap.js` 与 `routing/check_active.py` |
+| `campus.example` | 严格保护的校内域名（整域） | `Sources/EZSwitchCore/RoutingStrictConfiguration.swift` 与 `routing/data/strict-whitelist.json` 的 `campus` 条目 |
+| `192.0.2.53` | 严格模式的校园解析器 | 同上 |
 
-域名例外在 USB 与 Wi-Fi 分流、仅 Wi-Fi 直连模式下使用校园 DNS。主机例外在分流模式下使用 Wi-Fi；手机热点模式与订阅启动阶段拒绝该地址。
+域名例外在 USB 与 Wi-Fi 分流、仅 Wi-Fi 直连模式下使用校园 DNS；严格保护模式下 `campus.example` 及其子域始终使用校园解析。主机例外在分流模式下使用 Wi-Fi；手机热点模式与订阅启动阶段拒绝该地址。
 
 修改后同步更新相关测试夹具，再执行 `./script/verify-routing.sh --offline`。接口由应用识别和绑定；独立 Python 诊断工具中的 `en5` 与 `en0` 默认值需要按机器核对。
 

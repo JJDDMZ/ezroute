@@ -13,8 +13,8 @@ public enum RoutingConfigurationError: Error, LocalizedError {
 public enum RoutingConfiguration {
     private static let campus = "EZ-Campus"
     private static let dnsNode = "EZ-USB-DNS"
-    /// Example campus resolver and domain. Replace these documentation values
-    /// for a campus deployment; see docs/campus-profile.md.
+    /// Campus resolver for school-internal names; 192.0.2.53 is the DHCP secondary
+    /// and the only one that answers. 192.0.2.54 is silent and intentionally unused.
     private static let campusDNS = "192.0.2.53"
     private static let schoolDomain = "campus.example"
     private static let supported = Set(["trojan", "vmess", "vless", "ss", "ssr", "http", "socks5", "snell"])
@@ -135,7 +135,7 @@ public enum RoutingConfiguration {
             // up. Only a mode that holds a campus outlet may ask it, and the query still
             // leaves through the campus-bound policy, never the phone. Both the apex and
             // its subdomains are listed so matching does not depend on `+.` semantics.
-            // Only the explicitly configured campus resolver is used here.
+            // The second DHCP resolver (192.0.2.54) does not answer and is left out.
             if decision.mode == .split || decision.mode == .directOnly {
                 let campusResolvers = [campusDNS + "#" + campus]
                 dns["nameserver-policy"] = [schoolDomain: campusResolvers,
@@ -153,7 +153,7 @@ public enum RoutingConfiguration {
         // 只在存在 Wi-Fi 直连出口的模式里补:手机 USB 模式可能根本没有 Wi-Fi,把域名指到
         // campus 会新增一种连不上的失败面。注入发生在下面那条实验规则之前,所以实验地址
         // 仍然排在最前面。
-        if decision.mode == .split || decision.mode == .wifiHotspot {
+        if !decision.strictProtection && (decision.mode == .split || decision.mode == .wifiHotspot) {
             let current = out["rules"] as? [String] ?? []
             out["rules"] = RoutingDirectDomains.prepending(to: current, campus: campus,
                                                            includeApple: !appleViaProxy)
@@ -165,6 +165,9 @@ public enum RoutingConfiguration {
             let labRule = "IP-CIDR,192.0.2.10/32," + target + ",no-resolve"
             let current = out["rules"] as? [String] ?? []
             out["rules"] = [labRule] + current.filter { !$0.hasPrefix("IP-CIDR,192.0.2.10/32,") }
+        }
+        if decision.strictProtection {
+            out = try RoutingStrictConfiguration.make(out, originalRules: rules, decision: decision, appleViaProxy: appleViaProxy)
         }
         return try JSONSerialization.data(withJSONObject: out, options: [.sortedKeys, .withoutEscapingSlashes])
     }

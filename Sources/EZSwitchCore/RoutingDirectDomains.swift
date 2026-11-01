@@ -3,7 +3,8 @@ import Foundation
 /// 应用自带的直连域名清单:订阅清单没覆盖、或订阅的走向与本机偏好不同的域名。
 ///
 /// `domestic` 是订阅清单的缺口:小红书、DeepSeek、微信的部分域名不在其中,于是落到最后的
-/// `MATCH` 兜底、经手机出口绕到境外节点。清单里每个域名都实测解析到国内地址,直连可达。
+/// `MATCH` 兜底、经手机出口绕到境外节点。清单也包含经指定 Wi-Fi 出口验证可直连的中文社区;
+/// 直连可达不代表服务器位于中国大陆,验证范围见对应实测记录。
 ///
 /// `apple` 是本机偏好:这台机器平时只用国区 Apple 账号,Apple 服务直连更快(音乐与商店的
 /// 端点在国内都有节点,走代理反而是 CN → 境外 → CN)。偶尔要处理外区账号时,由
@@ -12,7 +13,7 @@ import Foundation
 /// 只放域名。IP 类规则刻意不在这里:`routing/clash-usb-wifi.js` 会丢弃目标为直连的非域名
 /// 规则,目的是让未知域名的请求保留手机兜底,不把国内 IP 之外的流量推上校园链路。
 public enum RoutingDirectDomains {
-    /// 订阅清单没有、但国内直连可达的域名。每一项都实测解析到国内地址。
+    /// 补充直连名单。新增条目须验证指定 Wi-Fi 出口,保留已有订阅直连规则。
     public static let domestic: [String] = [
         // 社交与微信
         "weixinbridge.com",
@@ -37,6 +38,11 @@ public enum RoutingDirectDomains {
         "ztgame.com", "xishanju.com", "heishenhua.com", "4399.com", "7k7k.com", "3839.com",
         "taptap.cn", "xiaoheihe.cn", "wegame.com.cn", "gamersky.com", "3dmgame.com",
         "ali213.net", "ngabbs.com", "17173.com",
+        // 细分玩家社区、百科与工具。2026-10-27 Wi-Fi 定向验证记录见 routing/evidence。
+        "skland.com", "fgo.wiki", "static.prts.wiki", "penguin-stats.io", "gamekee.com",
+        "wiki.biligame.com", "staticwiki.biligame.com", "patchwiki.biligame.com",
+        "static.biligame.net", "a9vg.com", "keylol.com", "stage1st.com",
+        "docs.maa.plus", "data.arkntools.app", "util.52poke.wiki",
         // 电商生活
         "pinduoduo.com", "pddpic.com", "tmall.com", "1688.com", "vip.com", "suning.com",
         "mogujie.com", "dianping.com", "mtyun.com", "ele.me", "qunar.com", "58.com",
@@ -49,6 +55,9 @@ public enum RoutingDirectDomains {
         // 金融医疗
         "cmbchina.com", "ccb.com", "unionpay.com", "eastmoney.com", "xueqiu.com", "pingan.com",
         "haodf.com", "chunyuyisheng.com", "guahao.com",
+        // 版权登记与关联服务。山东、甘肃本轮验证的是站方提供的 HTTP 入口。
+        "zjbanquan.org", "bqzx.ahcaee.com", "gzbqdj.com", "sdszpdj.com", "gsbqfw.com",
+        "zjgzfwpt.com",
         // 其他
         "10010.com", "cn.bing.com", "chuapp.com",
 

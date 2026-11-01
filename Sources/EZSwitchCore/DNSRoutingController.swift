@@ -7,20 +7,35 @@ import Foundation
     private let dns: ManagedDNS
     private let runtime: @MainActor () async throws -> Data
     private let selectedUSB: @MainActor () -> String?
+    private let protectedDNS: ManagedDNS?
+    private let protectedInterface: @MainActor () -> String?
+    private let protectedStateReadable: @MainActor () -> Bool
     public init(controller: any RoutingController, dns: ManagedDNS,
                 runtime: @escaping @MainActor () async throws -> Data,
-                selectedUSB: @escaping @MainActor () -> String?) {
+                selectedUSB: @escaping @MainActor () -> String?, protectedDNS: ManagedDNS? = nil,
+                protectedInterface: @escaping @MainActor () -> String? = { nil },
+                protectedStateReadable: @escaping @MainActor () -> Bool = { true }) {
         self.controller = controller; self.dns = dns; self.runtime = runtime; self.selectedUSB = selectedUSB
+        self.protectedDNS = protectedDNS; self.protectedInterface = protectedInterface
+        self.protectedStateReadable = protectedStateReadable
     }
     public func tunnelEnabled() async throws -> Bool {
+        let enabled: Bool
         do {
-            let enabled = try await controller.tunnelEnabled()
-            if !enabled { try dns.restore() }
-            return enabled
+            enabled = try await controller.tunnelEnabled()
         } catch {
             try dns.restore()
+            // A controller timeout must not restore campus DHCP DNS behind the strict rules.
+            // Release protected DNS only after an explicit TUN-off or non-protected verification.
             throw error
         }
+        if !enabled {
+            var failure: Error?
+            do { try dns.restore() } catch { failure = error }
+            do { try protectedDNS?.restore() } catch { if failure == nil { failure = error } }
+            if let failure { throw failure }
+        }
+        return enabled
     }
     public func apply(configuration: Data) async throws { try await controller.apply(configuration: configuration) }
     public func closeConnections() async throws { try await controller.closeConnections() }
@@ -45,6 +60,13 @@ import Foundation
             guard try await shouldContinue(), selectedUSB() == usb else { return false }
             try dns.synchronize(interface: usb, address: address)
         } else { try dns.restore() }
+        if let protectedDNS {
+            if let interface = protectedInterface(), config?["mode"] as? String == "rule" {
+                let address = try TunnelDNSAddress.resolve(await runtime())
+                guard try await shouldContinue(), protectedInterface() == interface else { return false }
+                try protectedDNS.synchronize(interface: interface, address: address)
+            } else if protectedStateReadable() { try protectedDNS.restore() }
+        }
         return try await shouldContinue()
     }
 }

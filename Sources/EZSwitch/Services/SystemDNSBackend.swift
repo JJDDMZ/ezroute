@@ -48,8 +48,8 @@ import EZSwitchCore
     }
     private func preferences(authorized: Bool = false) throws -> SCPreferences {
         let value = authorized
-            ? SCPreferencesCreateWithAuthorization(nil, "EZ Route USB DNS" as CFString, nil, authorization.reference)
-            : SCPreferencesCreate(nil, "EZ Route USB DNS" as CFString, nil)
+            ? SCPreferencesCreateWithAuthorization(nil, "EZ Route Network DNS" as CFString, nil, authorization.reference)
+            : SCPreferencesCreate(nil, "EZ Route Network DNS" as CFString, nil)
         guard let value else { throw ManagedDNSError.serviceUnavailable }
         return value
     }

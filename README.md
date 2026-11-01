@@ -7,6 +7,7 @@ EZ Route 是 macOS 菜单栏网络分流工具。它协调 USB 供网与 Wi-Fi �
 ## 功能
 
 - 识别 iPhone、随身 Wi-Fi 等 USB 供网设备，添加信任的无线连接。
+- 校园 Wi-Fi 可登记为严格保护：只有固定白名单域名经 Wi-Fi 直连，其余目标使用 USB 或阻断。
 - 按当前网络组合更新 Clash/Mihomo 出口，并清理旧连接。
 - 自动管理所选 USB 网络服务的系统 DNS，保存原设置并在停止接管时恢复。
 - 查看连接、运行期间的流量记录和网站响应。
@@ -19,11 +20,12 @@ EZ Route 是 macOS 菜单栏网络分流工具。它协调 USB 供网与 Wi-Fi �
 | 只有 USB 或信任的无线连接 | 代理、直连和 DNS 使用该出口 |
 | USB 与信任的无线连接 | 优先使用 USB |
 | 只有未信任的 Wi-Fi | 使用 Wi-Fi 直连，停用代理出口 |
+| 已登记的严格保护 Wi-Fi | 固定白名单经 Wi-Fi；其余目标使用 USB，USB 不可用时阻断 |
 | 离线或网络状态未知 | 阻断 Clash 请求，等待网络恢复 |
 
 ## 安装
 
-当前版本：**0.2.20（构建 24）**。需要 macOS 27、Xcode 27、Clash Verge Rev，以及可用的 USB 供网设备（如 iPhone 或随身 Wi-Fi）。离线验证还需要 Node.js 和 Python 3。
+当前版本：**0.2.26（构建 30）**。需要 macOS 27、Xcode 27、Clash Verge Rev，以及可用的 USB 供网设备（如 iPhone 或随身 Wi-Fi）。离线验证还需要 Node.js 和 Python 3。
 
 ```sh
 git clone https://github.com/JJDDMZ/ezroute.git
@@ -54,7 +56,7 @@ USB 设备需由 macOS 识别为以太网接口，并取得可用 IPv4 地址。
 ./script/verify-routing.sh --offline
 ```
 
-离线检查覆盖 Swift 核心、JavaScript 配置转换、Python 工具、构建和签名。实际出口由指定网络与请求的抓包结果确认。当前恢复机制依赖应用和 Clash 运行状态，尚未提供系统级零泄漏保证。切换瞬间、应用崩溃，以及绕过 TUN 的流量仍有保护或验证缺口。0.2.20 已在 ZTE F50 Pro USB 与校园 Wi-Fi 同时连接时，完成 Google 搜索、ChatGPT、B 站首页与视频的定向用户验证。其他设备、插拔后的 DNS 恢复及物理出口仍需分别验证。微信朋友圈大图加载慢或失败仍未解决。
+离线检查覆盖 Swift 核心、JavaScript 配置转换、Python 工具、构建和签名。实际出口由指定网络与请求的抓包结果确认。严格保护依赖 Clash TUN，规则只按域名放行白名单；上报/统计与境外站点显式排除。当前恢复机制依赖应用和 Clash 运行状态，尚未提供系统级零泄漏保证。关闭 Clash 后保护不可用；Clash 重启后需要手动重配才能回到严格模式（已知问题）。0.2.20 已在 ZTE F50 Pro USB 与校园 Wi-Fi 同时连接时，完成 Google 搜索、ChatGPT、B 站首页与视频的定向用户验证。其他设备、插拔后的 DNS 恢复及物理出口仍需分别验证。微信朋友圈大图加载慢或失败仍未解决。
 
 正常退出时，只有 Wi-Fi 在线会切为直连并停用代理，即使它已受信任。需要继续通过该无线连接使用代理时，保持应用和自动路由运行。
 

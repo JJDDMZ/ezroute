@@ -9,11 +9,17 @@ struct RoutingNetworkReading {
     let registrationAllowed: Bool
     let message: String?
     var identity: String = "unknown"
+    var strictRegistrationAllowed: Bool {
+        network.ssid.map { (1...32).contains($0.count) } == true &&
+            network.security.map { (0...15).contains($0) } == true
+    }
 }
 
 @MainActor enum RoutingNetworkReader {
     static func read(phones: DeviceSnapshot, deviceID: String,
-                     registrations: [RegisteredHotspot], identityAuthorized: Bool) -> RoutingNetworkReading {
+                     registrations: [RegisteredHotspot], identityAuthorized: Bool,
+                     strictRegistrations: [RegisteredHotspot] = [],
+                     strictDataUnreadable: Bool = false) -> RoutingNetworkReading {
         guard phones.error == nil,
               let store = SCDynamicStoreCreate(nil, "EZSwitchRouting" as CFString, nil, nil),
               SCDynamicStoreCopyKeyList(store, "State:/Network/.*" as CFString) != nil else {
@@ -54,9 +60,13 @@ struct RoutingNetworkReading {
                         ssid?.base64EncodedString() ?? "unknown", String(security ?? -1),
                         identityAuthorized ? wifi?.bssid() ?? "unknown" : "unknown"].joined(separator: "|")
         let name = ssid.flatMap { String(data: $0, encoding: .utf8) }
-        return .init(network: .init(usbInterface: usb, wifiInterface: wifi?.interfaceName,
-                                   ssid: ssid, security: security, registrations: registrations),
+        var network = RoutingNetwork(usbInterface: usb, wifiInterface: wifi?.interfaceName,
+                                     ssid: ssid, security: security, registrations: registrations,
+                                     strictDataUnreadable: strictDataUnreadable)
+        network.strictRegistrations = strictRegistrations
+        return .init(network: network,
                      wifiName: name, registrationAllowed: canRegister,
-                     message: wifi != nil && ssid == nil ? "Wi-Fi 名称读取失败，该网络仅用于直连。" : nil, identity: identity)
+                     message: wifi != nil && ssid == nil ? (strictRegistrations.isEmpty ?
+                        "Wi-Fi 名称读取失败，该网络仅用于直连。" : "Wi-Fi 名称读取失败，仅保留 USB 出口或阻断。") : nil, identity: identity)
     }
 }

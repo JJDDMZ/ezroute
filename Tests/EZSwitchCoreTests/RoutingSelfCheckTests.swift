@@ -60,7 +60,7 @@ final class RoutingSelfCheckTests: XCTestCase {
     }
     func testPacketAssociationRequiresProcessDirectionAndExactEndpoint() {
         let packets = """
-        12:00:00.1 (en5, Out, proc verge-mihomo:123) IP 172.20.10.2.53122 > 203.0.113.7.8443: tcp 50
+        12:00:00.1 (en5, Out, proc verge-mihomo:123) IP 198.51.100.2.53122 > 203.0.113.7.8443: tcp 50
         12:00:00.2 (en0, Out, proc browser:124) IP 192.0.2.2.52000 > 203.0.113.7.8443: tcp 50
         12:00:00.3 (en0, In, proc verge-mihomo:123) IP 203.0.113.7.8443 > 192.0.2.2.52000: tcp 50
         12:00:00.4 (en0, Out, proc verge-mihomo:123) IP 192.0.2.2.52000 > 203.0.113.70.8443: tcp 50
@@ -73,7 +73,7 @@ final class RoutingSelfCheckTests: XCTestCase {
         XCTAssertEqual(RoutingSelfCheck.physicalInterfaces(packets: line, address: "2001:db8::7", port: 443), ["en5"])
     }
     func testAppleMetadataOrderAndLowercaseDirectionAreAccepted() {
-        let line = "12:00:00.1 (en5, proc verge-mihomo:123, out) IP 172.20.10.2.53122 > 203.0.113.7.8443: tcp 50"
+        let line = "12:00:00.1 (en5, proc verge-mihomo:123, out) IP 198.51.100.2.53122 > 203.0.113.7.8443: tcp 50"
         XCTAssertEqual(RoutingSelfCheck.physicalInterfaces(packets: line, address: "203.0.113.7", port: 8443), ["en5"])
     }
     func testEndpointRejectsAmbiguousNodeAddressesAndUnrelatedPorts() throws {

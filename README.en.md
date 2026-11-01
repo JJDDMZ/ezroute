@@ -23,7 +23,7 @@ EZ Route is a macOS menu bar app for routing across USB network devices and Wi-F
 
 ## Install
 
-Current version: **0.2.20 (build 24)**. Requirements: macOS 27, Xcode 27, Clash Verge Rev, and a working USB network device, such as an iPhone or a portable Wi-Fi router. Offline checks also use Node.js and Python 3.
+Current version: **0.2.26 (build 30)**. Requirements: macOS 27, Xcode 27, Clash Verge Rev, and a working USB network device, such as an iPhone or a portable Wi-Fi router. Offline checks also use Node.js and Python 3.
 
 ```sh
 git clone https://github.com/JJDDMZ/ezroute.git
@@ -54,7 +54,7 @@ See the [usage guide](docs/setup.md). Campus-specific rules in the public source
 ./script/verify-routing.sh --offline
 ```
 
-Offline checks cover the Swift core, JavaScript configuration transforms, Python tools, build, and signature. Packet captures establish physical egress for the tested network and requests. Recovery currently depends on the app and Clash running and does not provide a system-wide zero-leak guarantee. Network transitions, app crashes, and traffic bypassing TUN still have protection or validation gaps. Version 0.2.20 received targeted user confirmation for Google Search, ChatGPT, and Bilibili pages and video with a ZTE F50 Pro over USB alongside campus Wi-Fi. Other devices, DNS restoration after unplugging, and physical egress need separate validation. Slow or failed loading of full-size WeChat Moments images remains unresolved.
+Offline checks cover the Swift core, JavaScript configuration transforms, Python tools, build, and signature. Packet captures establish physical egress for the tested network and requests. Strict protection depends on Clash TUN and is domain-scoped. Telemetry and foreign destinations are explicitly excluded. Recovery depends on the app and Clash running and does not provide a system-wide zero-leak guarantee. Protection is unavailable while Clash is down; after Clash restarts, strict mode needs a manual toggle to recover (known issue). Version 0.2.20 received targeted user confirmation for Google Search, ChatGPT, and Bilibili pages and video with a ZTE F50 Pro over USB alongside campus Wi-Fi. Other devices, DNS restoration after unplugging, and physical egress need separate validation. Slow or failed loading of full-size WeChat Moments images remains unresolved.
 
 When quitting normally with only Wi-Fi available, the app switches to direct access and disables proxies, even for a trusted connection. Keep the app and automatic routing running to continue proxy access over that wireless connection.
 

@@ -71,6 +71,25 @@ public enum RoutingDiagnosticText {
         let prefix = interrupted ? "本轮已停止；" : ""
         return prefix + "\(received)/\(total) 个网站收到 HTTPS 响应，其中 \(restricted) 个返回限制或错误。"
     }
+
+    /// `testableCount` 只数本模式测得到的站点:没有代理出口时,非国内站点连请求都发不出去,
+    /// 把它们算进分母会让结果永远像失败。
+    public static func physicalSummary(passCount: Int, testableCount: Int, directs: Int, proxies: Int,
+                                       proxyOutletAvailable: Bool, overall: RoutingCheckVerdict) -> String {
+        let result: String
+        switch overall {
+        case .fail: result = "发现不符：策略绑定或实际出口与预期不一致。"
+        case .pass: result = "符合预期：\(testableCount) 个网站的测试连接出口均匹配预期。"
+        case .unknown: result = "证据不足：已确认 \(passCount)/\(testableCount) 个网站的测试连接出口。"
+        }
+        var coverage = " 覆盖：直连 \(directs) 个、代理 \(proxies) 个。"
+        if !proxyOutletAvailable {
+            coverage += "本模式没有代理出口，非国内站点未测试。"
+        } else if proxies == 0 {
+            coverage += "代理出口尚待检查。"
+        }
+        return result + coverage
+    }
 }
 
 public enum RoutingDiagnosticInterruption: Error { case stateChanged }

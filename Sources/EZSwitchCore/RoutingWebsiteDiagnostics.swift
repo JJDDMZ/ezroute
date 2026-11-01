@@ -118,6 +118,22 @@ public struct RoutingWebsiteResult: Sendable {
     public var endpoint: RoutingWebsiteEndpoint? = nil
 }
 
+/// 采样计划。关联一条连接靠"在观测窗口内读到它",而快速站点的连接只存活几十毫秒——
+/// 旧的固定 8 帧、每帧 100 ms 会与它错开相位,于是站点被报成"找不到本次请求的 Clash 连接"。
+/// 改为按固定间隔连续采样,并在请求结束后再补一小段。
+public struct RoutingObservationPlan: Equatable, Sendable {
+    public var interval: Duration
+    public var grace: Duration
+    public var maximum: Duration
+    public init(interval: Duration = .milliseconds(25),
+                grace: Duration = .milliseconds(150),
+                maximum: Duration = .seconds(3)) {
+        self.interval = interval
+        self.grace = grace
+        self.maximum = maximum
+    }
+}
+
 public enum RoutingWebsiteTester {
     public static func target(_ raw: String) throws -> RoutingWebsiteTarget {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -133,7 +149,7 @@ public enum RoutingWebsiteTester {
               let root = try JSONSerialization.jsonObject(with: proxies) as? [String: Any],
               let adapters = root["proxies"] as? [String: [String: Any]],
               (config["tun"] as? [String: Any])?["enable"] as? Bool == true,
-              config["mode"] as? String == (decision.mode == .directOnly ? "direct" : "rule"),
+              config["mode"] as? String == (decision.mode == .directOnly && !decision.strictProtection ? "direct" : "rule"),
               let port = ([config["mixed-port"], config["port"]].compactMap { $0 as? Int }).first(where: { (1...65535).contains($0) }) else {
             throw RoutingWebsiteError.unavailable
         }
@@ -159,6 +175,22 @@ public enum RoutingWebsiteTester {
         return port
     }
 
+    /// 按 `interval` 连续采样,直到被取消或达到 `maximum`。调用方在请求结束并补足
+    /// `grace` 之后取消;把采样与请求解耦,短命连接就不会因为相位错过而丢失证据。
+    public static func observe(plan: RoutingObservationPlan,
+                               read: @escaping @Sendable () async throws -> Data) async -> [Data] {
+        var frames: [Data] = []
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: plan.maximum)
+        while !Task.isCancelled, clock.now < deadline {
+            do {
+                frames.append(try await read())
+                try await Task.sleep(for: plan.interval)
+            } catch { break }
+        }
+        return frames
+    }
+
     public static func run(site: RoutingTestSite, decision: RoutingDecision, client: MihomoClient = MihomoClient(),
                            configuration: Data? = nil,
                            shouldContinue: @escaping @Sendable () async -> Bool = { true }) async throws -> RoutingWebsiteResult {
@@ -174,17 +206,10 @@ public enum RoutingWebsiteTester {
         let proxies = try await client.read(path: "/proxies")
         let port = try entryPort(general: general, proxies: proxies, decision: decision)
         let previousIDs = try RoutingWebsiteEvidence.connectionIDs(await client.read(path: "/connections"))
-        // Bounded observation. A fast request may finish before sampling; that remains unknown.
+        // 连续采样,而不是固定 8 帧:后者的 100 ms 间隔会整段跨过只存活几十毫秒的连接。
+        let plan = RoutingObservationPlan()
         let observation = Task {
-            var frames: [Data] = []
-            for _ in 0..<8 {
-                if Task.isCancelled { break }
-                do {
-                    frames.append(try await client.read(path: "/connections"))
-                    try await Task.sleep(for: .milliseconds(100))
-                } catch { break }
-            }
-            return frames
+            await Self.observe(plan: plan) { try await client.read(path: "/connections") }
         }
         defer { observation.cancel() }
         guard await shouldContinue() else { throw RoutingWebsiteError.unavailable }
@@ -194,19 +219,21 @@ public enum RoutingWebsiteTester {
             "--proxy", "http://127.0.0.1:\(port)", "--noproxy", "", "--ipv4", "--retry", "0",
             "--proto", target.proto, "--connect-timeout", "4", "--max-time", "8",
             "--write-out", "%{http_code} %{time_total} %{local_port}", target.url], timeout: 10)
+        // 请求结束后补一段宽限:最后一帧可能正好落在连接关闭之前。
+        try? await Task.sleep(for: plan.grace)
         observation.cancel()
         let frames = await observation.value
         let probe = try RoutingWebsiteProbe.parse(request.output, exitCode: request.exitCode)
         let evidence = try RoutingWebsiteEvidence.find(host: target.host, localPort: probe.localPort,
             previousIDs: previousIDs, observations: frames, proxies: proxies,
-            directOnlyInterface: decision.mode == .directOnly ? decision.directInterface : nil)
+            directOnlyInterface: decision.mode == .directOnly && !decision.strictProtection ? decision.directInterface : nil)
         // Selection or binding changes during the request invalidate the observed association.
         let currentProxies = try await client.read(path: "/proxies")
         let currentGeneral = try await client.read(path: "/configs")
         let unchangedEntry = (try? entryPort(general: currentGeneral, proxies: currentProxies, decision: decision)) == port
         let currentEvidence = try RoutingWebsiteEvidence.find(host: target.host, localPort: probe.localPort,
             previousIDs: previousIDs, observations: frames, proxies: currentProxies,
-            directOnlyInterface: decision.mode == .directOnly && unchangedEntry ? decision.directInterface : nil)
+            directOnlyInterface: decision.mode == .directOnly && !decision.strictProtection && unchangedEntry ? decision.directInterface : nil)
         let stillAuthorized = await shouldContinue()
         let valid = unchangedEntry && evidence == currentEvidence && stillAuthorized
         let endpoint = try configuration.flatMap {

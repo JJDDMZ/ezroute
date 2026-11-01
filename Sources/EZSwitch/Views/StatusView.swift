@@ -33,7 +33,7 @@ struct StatusView: View {
                 set: { value in Task { await routing.setAppleViaProxy(value) } }))
                 .toggleStyle(.switch)
                 .disabled(routing.changingEnabled || model.quitting)
-                .help("分流或信任的无线连接模式下，关闭可让 Apple 服务直连，开启则使用订阅规则。")
+                .help("普通分流保持原有 Apple 设置。严格保护网络上，开启时 Apple 使用 USB，USB 不可用时阻断；关闭时仅 Apple 白名单主机可直连。")
 
             Text("手机切卡可搭配独立项目 EZ SIM。")
                 .font(.caption).foregroundStyle(.secondary)

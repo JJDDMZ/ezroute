@@ -116,6 +116,36 @@ final class RoutingWebsiteTests: XCTestCase {
             observations: [data(["connections": [lan]])], proxies: proxies()))
     }
 
+    /// 旧实现固定 8 帧、每帧 100 ms。连接只存活几十毫秒时会正好落在两帧之间,
+    /// 于是快速站点永远"找不到本次请求的 Clash 连接"。
+    func testObservationKeepsSamplingSoAShortLivedConnectionIsNotMissed() async {
+        let visible = Data(#"{"connections":[{"id":"request","metadata":{"sourceIP":"127.0.0.1","sourcePort":51000,"host":"www.bilibili.com"},"chains":["DIRECT"]}]}"#.utf8)
+        let empty = Data(#"{"connections":[]}"#.utf8)
+        let plan = RoutingObservationPlan(interval: .milliseconds(20),
+                                          grace: .milliseconds(40),
+                                          maximum: .milliseconds(150))
+        let start = ContinuousClock.now
+        let frames = await RoutingWebsiteTester.observe(plan: plan) {
+            // 这条连接只在 [25 ms, 75 ms) 内可见:比旧的 100 ms 间隔还短。
+            let elapsed = start.duration(to: .now)
+            return elapsed >= .milliseconds(25) && elapsed < .milliseconds(75) ? visible : empty
+        }
+        XCTAssertTrue(frames.contains { $0 == visible }, "只存活 50 ms 的连接被漏采了")
+    }
+
+    func testSummaryWithoutAProxyOutletExplainsTheModeInsteadOfLookingLikeFailure() {
+        let withOutlet = RoutingDiagnosticText.physicalSummary(passCount: 2, testableCount: 2, directs: 1,
+                                                               proxies: 1, proxyOutletAvailable: true, overall: .unknown)
+        XCTAssertTrue(withOutlet.contains("已确认 2/2"))
+        XCTAssertFalse(withOutlet.contains("没有代理出口"))
+
+        let withoutOutlet = RoutingDiagnosticText.physicalSummary(passCount: 2, testableCount: 2, directs: 2,
+                                                                  proxies: 0, proxyOutletAvailable: false, overall: .unknown)
+        XCTAssertTrue(withoutOutlet.contains("已确认 2/2"), "分母只能是本模式测得到的站点")
+        XCTAssertTrue(withoutOutlet.contains("本模式没有代理出口"))
+        XCTAssertFalse(withoutOutlet.contains("代理出口尚待检查"))
+    }
+
     func testHTTP403MeansHandshakeCompletedButNotWebsiteUsable() throws {
         let probe = try RoutingWebsiteProbe.parse("403 0.125 51000", exitCode: 0)
         XCTAssertEqual(probe.status, 403)

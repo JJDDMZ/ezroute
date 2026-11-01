@@ -11,6 +11,9 @@ import EZSwitchCore
         didSet { if timer != nil { refresh() } }
     }
     private(set) var registrations: [RegisteredHotspot]
+    private(set) var strictRegistrations: [RegisteredHotspot]
+    /// 严格保护记录存在但无法解码：按仅 USB 或阻断处理，避免退回普通直连。
+    private(set) var strictDataUnreadable = false
     private(set) var reading = RoutingNetworkReading(network: .init(stateReadable: false), wifiName: nil,
                                                     registrationAllowed: false, message: nil)
     private(set) var locationStatus = "等待授权"
@@ -40,6 +43,7 @@ import EZSwitchCore
     @ObservationIgnored private var probingTunnel = false
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let systemDNS: ManagedDNS
+    @ObservationIgnored private let protectedDNS: ManagedDNS
     @ObservationIgnored private let dnsBackend: SystemDNSBackend
     @ObservationIgnored private let location = CLLocationManager()
     @ObservationIgnored private var phones = DeviceSnapshot(devices: [], error: "等待读取")
@@ -53,10 +57,19 @@ import EZSwitchCore
         systemDNS = ManagedDNS(backend: backend, journalURL:
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
                 "Library/Application Support/dev.ezswitch.app/usb-dns-recovery.json"))
+        protectedDNS = ManagedDNS(backend: backend, journalURL:
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
+                "Library/Application Support/dev.ezswitch.app/strict-wifi-dns-recovery.json"))
         coupling = RoutingTunnelCoupling(suspended: defaults.bool(forKey: "EZSwitch.automaticRoutingSuspendedByTunnel"))
         registrations = defaults.data(forKey: "EZSwitch.registeredHotspots").flatMap {
             try? JSONDecoder().decode([RegisteredHotspot].self, from: $0)
         } ?? []
+        let strictPayload = defaults.data(forKey: "EZSwitch.strictWireless")
+        let decodedStrict = strictPayload.flatMap {
+            try? JSONDecoder().decode([RegisteredHotspot].self, from: $0)
+        }
+        strictRegistrations = decodedStrict ?? []
+        strictDataUnreadable = strictPayload != nil && decodedStrict == nil
         super.init()
         location.delegate = self
         enabled = defaults.bool(forKey: "EZSwitch.automaticRouting")
@@ -65,7 +78,11 @@ import EZSwitchCore
             runtime: { try await MihomoClient().read(path: "/configs") }, selectedUSB: { [weak self] in
                 guard let self, self.enabled, !self.shuttingDown, !self.sleeping, !self.settling else { return nil }
                 return self.reading.network.usbInterface
-            })
+            }, protectedDNS: protectedDNS, protectedInterface: { [weak self] in
+                guard let self, !self.strictRegistrations.isEmpty, let wifi = self.reading.network.wifiInterface else { return nil }
+                let ssid = self.reading.network.ssid
+                return !RoutingPolicy.validSSID(ssid) || self.strictRegistrations.contains(where: { $0.ssid == ssid }) ? wifi : nil
+            }, protectedStateReadable: { [weak self] in self?.reading.network.stateReadable == true })
         coordinator = RoutingCoordinator(controller: controller, loadBase: { [weak self] in
             guard let self else { throw MihomoClientError.unavailable }
             return try await self.loadBase()
@@ -83,8 +100,19 @@ import EZSwitchCore
     }
 
     var decision: RoutingDecision { RoutingPolicy.decide(reading.network) }
+    /// 未取得实例锁的第二个副本只能查看，不能写入注册表或下发路由。
+    var controllerOwned: Bool { instanceLock != nil }
+    var strictDataProblem: String? {
+        strictDataUnreadable ? "严格保护记录无法读取，已按最保守方式处理：仅 USB 出口或阻断。请重新添加严格保护。" : nil
+    }
     var phonesForPicker: [Phone] { phones.devices }
-    var modeTitle: String { decision.mode.displayTitle }
+    var modeTitle: String { decision.strictProtection ? (decision.proxyInterface == nil ?
+        "严格保护 · 仅白名单直连" : "严格保护 · USB 与 Wi-Fi 分流") : decision.mode.displayTitle }
+    var pendingStrictRegistration: RegisteredHotspot? {
+        guard reading.strictRegistrationAllowed, let ssid = reading.network.ssid,
+              let security = reading.network.security else { return nil }
+        return .init(ssid: ssid, security: security, displayName: reading.wifiName ?? "严格保护无线连接")
+    }
     var pendingRegistration: RegisteredHotspot? {
         guard reading.registrationAllowed, let ssid = reading.network.ssid,
               let security = reading.network.security else { return nil }
@@ -125,11 +153,13 @@ import EZSwitchCore
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }; self.refresh()
-                if self.enabled && !self.shuttingDown && Date().timeIntervalSince(self.lastAudit) >= 5 {
+                // Probe a persisted TUN suspension first; strict registrations used to make this branch unreachable.
+                if !self.enabled && !self.shuttingDown {
+                    await self.probeTunnelForRestore()
+                } else if (self.enabled || !self.strictRegistrations.isEmpty) && !self.shuttingDown
+                            && Date().timeIntervalSince(self.lastAudit) >= 5 {
                     self.lastAudit = Date(); await self.coordinator.audit()
                 }
-                // Only a suspension is worth probing; a switch the user turned off stays off.
-                else if !self.enabled && !self.shuttingDown { await self.probeTunnelForRestore() }
             }
         }
     }
@@ -142,18 +172,25 @@ import EZSwitchCore
         default: locationStatus = "等待授权"
         }
         reading = RoutingNetworkReader.read(phones: phones, deviceID: usbDeviceID,
-                                           registrations: registrations, identityAuthorized: authorized)
-        if enabled && !shuttingDown { Task { await coordinator.reconcile() } }
+                                           registrations: registrations, identityAuthorized: authorized,
+                                           strictRegistrations: strictRegistrations, strictDataUnreadable: strictDataUnreadable)
+        if controllerOwned && (enabled || !strictRegistrations.isEmpty) && !shuttingDown {
+            Task { await coordinator.reconcile() }
+        }
     }
     func requestIdentityPermission() { location.requestWhenInUseAuthorization() }
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor [weak self] in self?.refresh() }
     }
     func register(_ candidate: RegisteredHotspot) {
+        guard controllerOwned else { feedback = "另一个 EZ Route 实例正在控制路由，本次操作已拒绝。"; return }
         refresh()
         guard reading.registrationAllowed,
               candidate.matches(ssid: reading.network.ssid, security: reading.network.security) else {
             feedback = "网络已变化，请重新选择当前无线连接。"; return
+        }
+        guard !strictRegistrations.contains(where: { $0.ssid == candidate.ssid }) else {
+            feedback = "该网络正在严格保护中。请先移除严格保护，再添加信任。"; return
         }
         guard !registrations.contains(where: { $0.matches(ssid: candidate.ssid, security: candidate.security) }) else {
             feedback = "该无线连接已在信任列表中。"; return
@@ -161,21 +198,48 @@ import EZSwitchCore
         registrations.append(candidate); persist()
         feedback = "已添加信任。开启自动路由后，连接该无线网络即可使用代理。"; refresh()
     }
-    func remove(_ id: UUID) { registrations.removeAll { $0.id == id }; persist(); refresh() }
+    func remove(_ id: UUID) {
+        guard controllerOwned else { feedback = "另一个 EZ Route 实例正在控制路由，本次操作已拒绝。"; return }
+        registrations.removeAll { $0.id == id }; persist(); refresh()
+    }
+    func registerStrict(_ candidate: RegisteredHotspot) {
+        guard controllerOwned else { feedback = "另一个 EZ Route 实例正在控制路由，本次操作已拒绝。"; return }
+        refresh()
+        guard reading.strictRegistrationAllowed, candidate.ssid == reading.network.ssid,
+              candidate.security == reading.network.security else {
+            feedback = "网络已变化，请重新选择当前无线连接。"; return
+        }
+        guard !strictRegistrations.contains(where: { $0.ssid == candidate.ssid }) else {
+            feedback = "该网络已启用严格保护。"; return
+        }
+        strictRegistrations.append(candidate)
+        registrations.removeAll { $0.ssid == candidate.ssid }
+        strictDataUnreadable = false
+        persist(); feedback = "已添加严格保护。名单外目标只使用 USB，USB 不可用时阻断。"; refresh()
+    }
+    func removeStrict(_ id: UUID) {
+        guard controllerOwned else { feedback = "另一个 EZ Route 实例正在控制路由，本次操作已拒绝。"; return }
+        strictRegistrations.removeAll { $0.id == id }; persist(); refresh()
+        Task { await coordinator.reconcile(force: true) }
+    }
     private func persist() {
+        guard controllerOwned else { return }
         if let data = try? JSONEncoder().encode(registrations) { defaults.set(data, forKey: "EZSwitch.registeredHotspots") }
+        if let data = try? JSONEncoder().encode(strictRegistrations) { defaults.set(data, forKey: "EZSwitch.strictWireless") }
     }
     var stateTitle: String {
         switch routingState {
         case .idle: "自动路由已关闭"
-        case .paused: "TUN 已关闭 · 自动路由已暂停"
+        case .paused: strictRegistrations.isEmpty ? "TUN 已关闭 · 自动路由已暂停" : "TUN 已关闭 · 严格保护未生效"
         case .switching: "正在切换网络出口"
-        case .active: enabled ? "自动路由运行中" : "自动路由已关闭 · 退出配置已生效"
+        case .active: appliedDecision?.strictProtection == true ? "严格保护运行中" :
+            (enabled ? "自动路由运行中" : "自动路由已关闭 · 退出配置已生效")
         case .blockedAfterFailure: "切换失败 · 请求已阻断"
         case .unprotected: "出口状态待确认 · 请断开校园 Wi-Fi"
         }
     }
-    var isAttention: Bool { routingState == .unprotected || routingState == .blockedAfterFailure }
+    var isAttention: Bool { routingState == .unprotected || routingState == .blockedAfterFailure ||
+        (routingState == .paused && !strictRegistrations.isEmpty) }
     var websiteTestControlsAvailable: Bool {
         enabled && !shuttingDown && !sleeping && !settling &&
             routingState == .active && coordinator.websiteTestReadiness.controlsAvailable
@@ -202,7 +266,8 @@ import EZSwitchCore
     }
     private func loadBase() async throws -> Data {
         reading = RoutingNetworkReader.read(phones: phones, deviceID: usbDeviceID,
-            registrations: registrations, identityAuthorized: location.authorizationStatus == .authorizedAlways)
+            registrations: registrations, identityAuthorized: location.authorizationStatus == .authorizedAlways,
+            strictRegistrations: strictRegistrations, strictDataUnreadable: strictDataUnreadable)
         let binding = try ClashBootstrapBinding.resolve(deviceID: usbDeviceID,
             currentInterface: reading.network.usbInterface,
             rememberedDeviceID: defaults.string(forKey: "EZSwitch.bootstrapDeviceID"),
@@ -241,18 +306,14 @@ import EZSwitchCore
     private func currentSnapshot() -> RoutingSnapshot {
         // Read again at every asynchronous boundary, not just when the timer fired.
         reading = RoutingNetworkReader.read(phones: phones, deviceID: usbDeviceID,
-            registrations: registrations, identityAuthorized: location.authorizationStatus == .authorizedAlways)
-        let target: RoutingDecision
-        if sleeping || settling { target = .init(mode: .blocked, proxyInterface: nil, directInterface: nil) }
-        else if !enabled || shuttingDown {
-            if let usb = reading.network.usbInterface { target = .init(mode: .usbHotspot, proxyInterface: usb, directInterface: usb) }
-            else if let wifi = reading.network.wifiInterface { target = .init(mode: .directOnly, proxyInterface: nil, directInterface: wifi) }
-            else { target = .init(mode: .blocked, proxyInterface: nil, directInterface: nil) }
-        } else { target = decision }
-        return .init(decision: target, identity: reading.identity + "|" + usbDeviceID + "|" + currentStamp() + "|\(enabled)|\(shuttingDown)|\(sleeping)|\(settling)")
+            registrations: registrations, identityAuthorized: location.authorizationStatus == .authorizedAlways,
+            strictRegistrations: strictRegistrations, strictDataUnreadable: strictDataUnreadable)
+        let target = RoutingPolicy.sessionDecision(reading.network, active: enabled && !shuttingDown,
+                                                   suspended: sleeping || settling)
+        return .init(decision: target, identity: reading.identity + "|" + usbDeviceID + "|" + currentStamp() + "|\(enabled)|\(shuttingDown)|\(sleeping)|\(settling)|apple:\(appleViaProxy)")
     }
     private func networkChanged() {
-        guard enabled && !shuttingDown else { refresh(); return }
+        guard (enabled || !strictRegistrations.isEmpty) && !shuttingDown else { refresh(); return }
         settling = true; refresh()
         settleTask?.cancel()
         settleTask = Task { [weak self] in
@@ -326,7 +387,7 @@ import EZSwitchCore
         if !safe { shuttingDown = false }
         return safe
     }
-    var hasPendingDNSRecovery: Bool { systemDNS.hasPendingChanges }
+    var hasPendingDNSRecovery: Bool { systemDNS.hasPendingChanges || protectedDNS.hasPendingChanges }
     private func didApply(_ state: RoutingCoordinatorState, _ snapshot: RoutingSnapshot?) {
         let reason = coordinator.failureDescription ?? "none"
         Self.logger.notice("state=\(String(describing: state), privacy: .public) mode=\(snapshot?.decision.mode.rawValue ?? "none", privacy: .public) reason=\(reason, privacy: .public)")

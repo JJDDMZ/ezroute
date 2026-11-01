@@ -20,17 +20,18 @@ public enum ManagedDNSError: Error, LocalizedError {
     case serviceUnavailable, changedExternally, writeFailed, invalidTunnel, invalidJournal, authorizationDenied
     public var errorDescription: String? {
         switch self {
-        case .serviceUnavailable: "无法唯一确定 USB 网络服务，未修改 DNS。"
+        case .serviceUnavailable: "无法唯一确定网络服务，未修改 DNS。"
         case .changedExternally: "DNS 已被其他程序或用户修改，已保留该设置。请检查网络 DNS 后重试。"
-        case .writeFailed: "无法应用或恢复 USB DNS。请允许网络设置授权后重试。"
+        case .writeFailed: "无法应用或恢复网络 DNS。请允许网络设置授权后重试。"
         case .invalidTunnel: "无法确定 Clash 的 TUN DNS 地址，未修改系统 DNS。"
-        case .invalidJournal: "USB DNS 恢复记录无法读取，已保留记录和当前设置。"
-        case .authorizationDenied: "未获得 USB DNS 网络设置授权。请允许授权后重新开启自动路由或点击检查路由。"
+        case .invalidJournal: "DNS 恢复记录无法读取，已保留记录和当前设置。"
+        case .authorizationDenied: "未获得 DNS 网络设置授权。请允许授权后重新开启自动路由或点击检查路由。"
         }
     }
 }
 
-/// Owns only the selected USB service's DNS. The durable record precedes every
+/// Owns one selected service's DNS. Each independently managed interface needs its own journal.
+/// The durable record precedes every
 /// first write and survives a failed write or an abnormal application exit.
 @MainActor public final class ManagedDNS {
     private struct Record: Codable {

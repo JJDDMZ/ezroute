@@ -66,6 +66,8 @@ import EZSwitchCore
         var stopped = false
         var configurationMismatch = false
         var stopReason = ""
+        /// 本模式测不到的站点(没有代理出口时的非国内站点),不计入分母也不覆盖其说明。
+        var untestable: Set<String> = []
         var received = 0
         var restricted = 0
         var captureOutcome: RoutingCaptureOutcome = .notRequested
@@ -108,6 +110,14 @@ import EZSwitchCore
             guard await authorized() else { throw RoutingWebsiteError.unavailable }
             for (index, site) in sites.enumerated() {
                 try Task.checkCancellation()
+                if purpose == .physical, initial.decision.proxyInterface == nil, !site.domestic {
+                    // 没有代理出口时这项发出去也不会通;说明清楚,而不是让它把结果拉成失败。
+                    untestable.insert(site.id)
+                    setRow(.init(summary: "本模式没有代理出口",
+                                 route: "未测试：这一项需要代理出口。", verdict: .unknown),
+                           for: site.id, purpose: purpose)
+                    continue
+                }
                 setSummary("正在\(purpose == .physical ? "检查出口" : "测试网站")：\(index + 1)/\(sites.count) · \(site.title)", purpose: purpose)
                 setRow(.init(summary: "等待路由核对…"), for: site.id, purpose: purpose)
                 guard try await routing.waitForWebsiteTests(), await authorized() else { throw RoutingWebsiteError.unavailable }
@@ -190,7 +200,7 @@ import EZSwitchCore
             stopped = true
             if stopReason.isEmpty { stopReason = "结束核对时网络、配置或节点选择已变化。" }
         }
-        for site in sites {
+        for site in sites where !untestable.contains(site.id) {
             var row = reports[purpose]?.rows[site.id] ?? .init(summary: "未执行")
             if stopped && row.verdict != .fail {
                 row.verdict = .unknown
@@ -210,19 +220,19 @@ import EZSwitchCore
             setSummary(prefix + RoutingDiagnosticText.connectivitySummary(received: received, restricted: restricted,
                 total: sites.count, interrupted: stopped), purpose: purpose)
         } else {
-            var verdicts = sites.map { reports[purpose]?.rows[$0.id]?.verdict ?? .unknown }
+            let testable = sites.filter { !untestable.contains($0.id) }
+            var verdicts = testable.map { reports[purpose]?.rows[$0.id]?.verdict ?? .unknown }
             if configurationMismatch { verdicts.append(.fail) }
             if stopped { verdicts.append(.unknown) }
             let overall = RoutingSelfCheck.overall(verdicts)
             let passCount = verdicts.filter { $0 == .pass }.count
-            let result = overall == .fail ? "发现不符：策略绑定或实际出口与预期不一致。" :
-                overall == .pass ? "符合预期：\(sites.count) 个网站的测试连接出口均匹配预期。" :
-                "证据不足：已确认 \(passCount)/\(sites.count) 个网站的测试连接出口。"
             let directs = physical.filter { $0.binding != nil && $0.direct }.count
             let proxies = physical.filter { $0.binding != nil && !$0.direct }.count
-            let coverage = " 覆盖：直连 \(directs) 个、代理 \(proxies) 个。"
-                + (proxies == 0 && identity?.decision.proxyInterface != nil ? "代理出口尚待检查。" : "")
-            setSummary(result + coverage + (stopReason.isEmpty ? "" : " " + stopReason) + " " + captureOutcome.explanation, purpose: purpose)
+            let summary = RoutingDiagnosticText.physicalSummary(
+                passCount: passCount, testableCount: testable.count, directs: directs, proxies: proxies,
+                proxyOutletAvailable: identity?.decision.proxyInterface != nil, overall: overall)
+            setSummary(summary + (stopReason.isEmpty ? "" : " " + stopReason) + " " + captureOutcome.explanation,
+                       purpose: purpose)
         }
     }
     func cancel() { capture?.cancel(); task?.cancel() }
